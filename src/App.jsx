@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { supabase } from "./supabase.js";
 
 // ── VERIFIED LAHORE RATES Q1 2026 ─────────────────────────────
 const DEFAULT_RATES = {
@@ -449,6 +450,33 @@ export default function App() {
   const coTotal    = proj ? (proj.changeOrders||[]).reduce((s,c)=>s+(c.amount||0),0) : 0;
   const budgetLeft = proj ? proj.contractValue+coTotal-totalSpent : 0;
 
+  // ── FETCH PROJECTS FROM SUPABASE ──────────────────────────────
+  useEffect(() => {
+    async function fetchProjects() {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select(`
+            *,
+            project_phases(*),
+            expenses(*),
+            checklist_logs(*, checklist_items(*)),
+            change_orders(*),
+            timeline_edits(*)
+          `);
+        
+        if (error) throw error;
+        if (data && data.length > 0) {
+          setProjects(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch projects:', err);
+        // Keep using SEED data as fallback
+      }
+    }
+    fetchProjects();
+  }, []);
+
   function updProj(id, fn) { setProjects(prev=>prev.map(p=>p.id===id?fn(p):p)); }
 
   // ── CHECKLIST HELPERS ──────────────────────────────────────
@@ -621,6 +649,46 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
       phases:generatedQuote.phases.map((p,i)=>({...p,spent:0,progress:0,status:i===0?"active":"pending",budget:p.budget})),
       checklistLogs:[],expenses:[],changeOrders:[],timelineEdits:[],
     };
+    
+    // Insert to Supabase
+    (async () => {
+      try {
+        const { error: projError } = await supabase.from('projects').insert([{
+          id: np.id,
+          name: np.name,
+          client: np.client,
+          location: np.location,
+          type: np.type,
+          totalArea: np.totalArea,
+          floors: np.floors,
+          startDate: np.startDate,
+          contractValue: np.contractValue,
+          status: np.status,
+          currentPhase: np.currentPhase,
+          source: np.source
+        }]);
+        
+        if (projError) throw projError;
+        
+        // Insert phases
+        const phasesData = np.phases.map(p => ({
+          id: `ph_${Date.now()}_${Math.random()}`,
+          projectId: np.id,
+          key: p.key,
+          budget: p.budget,
+          spent: 0,
+          progress: 0,
+          status: p.status,
+          expectedEnd: p.expectedEnd || null
+        }));
+        
+        const { error: phaseError } = await supabase.from('project_phases').insert(phasesData);
+        if (phaseError) throw phaseError;
+      } catch (err) {
+        console.error('Failed to save project to Supabase:', err);
+      }
+    })();
+    
     setProjects(prev=>[...prev,np]);
     setActiveProject(np.id); setView("project"); setProjectTab("overview");
     setQuoteStep(1); setGeneratedQuote(null); setAiResult(null);
@@ -656,6 +724,64 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
       const exp={id:"e"+Date.now(),date:new Date().toISOString().split("T")[0],phase:supPhase,cat:expForm.cat,desc:expForm.desc,amount:parseFloat(expForm.amount),receipt:expReceipt||RECEIPT_SVG};
       upd.expenses=[exp,...(p.expenses||[])];
     }
+    
+    // Insert to Supabase
+    (async () => {
+      try {
+        // Insert checklist log
+        const { data: logData, error: logError } = await supabase
+          .from('checklist_logs')
+          .insert([{
+            id: log.id,
+            projectId: p.id,
+            date: log.date,
+            phase: log.phase,
+            completionRate: log.completionRate
+          }])
+          .select();
+        
+        if (logError) throw logError;
+        
+        // Insert checklist items
+        if (logData && logData[0]) {
+          const itemsData = items.map(it => ({
+            logId: log.id,
+            item: it.item,
+            status: it.status,
+            photo: it.photo,
+            reason: it.reason,
+            note: it.note
+          }));
+          
+          const { error: itemsError } = await supabase
+            .from('checklist_items')
+            .insert(itemsData);
+          
+          if (itemsError) throw itemsError;
+        }
+        
+        // Insert expense if provided
+        if (expForm.desc && expForm.amount) {
+          const { error: expError } = await supabase
+            .from('expenses')
+            .insert([{
+              id: "e"+Date.now(),
+              projectId: p.id,
+              date: new Date().toISOString().split("T")[0],
+              phase: supPhase,
+              category: expForm.cat,
+              description: expForm.desc,
+              amount: parseFloat(expForm.amount),
+              receipt: expReceipt || RECEIPT_SVG
+            }]);
+          
+          if (expError) throw expError;
+        }
+      } catch (err) {
+        console.error('Failed to save daily log:', err);
+      }
+    })();
+    
     setProjects(prev=>prev.map(x=>x.id===p.id?upd:x));
     setCheckState({}); setExpForm({cat:"material",desc:"",amount:"",notes:""}); setExpReceipt(null);
     setView("project"); setProjectTab("logs");
@@ -663,12 +789,67 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
 
   function submitCO() {
     if (!proj||!coForm.description||!coForm.amount) return;
-    updProj(proj.id,p=>({...p,changeOrders:[...(p.changeOrders||[]),{id:"co"+Date.now(),date:new Date().toISOString().split("T")[0],...coForm,amount:parseFloat(coForm.amount)}]}));
+    const coId = "co"+Date.now();
+    updProj(proj.id,p=>({...p,changeOrders:[...(p.changeOrders||[]),{id:coId,date:new Date().toISOString().split("T")[0],...coForm,amount:parseFloat(coForm.amount)}]}));
+    
+    // Insert to Supabase
+    (async () => {
+      try {
+        const { error } = await supabase
+          .from('change_orders')
+          .insert([{
+            id: coId,
+            projectId: proj.id,
+            phase: coForm.phase,
+            type: coForm.type,
+            description: coForm.description,
+            amount: parseFloat(coForm.amount),
+            reason: coForm.reason,
+            date: new Date().toISOString().split("T")[0]
+          }]);
+        
+        if (error) throw error;
+      } catch (err) {
+        console.error('Failed to save change order:', err);
+      }
+    })();
+    
     setCoForm({phase:"grey",type:"rate_change",description:"",amount:"",reason:""}); setShowCO(false);
   }
   function submitTLE() {
     if (!proj||!tlePhase||!tleDate||!tleReason) return;
-    updProj(proj.id,p=>({...p,timelineEdits:[...(p.timelineEdits||[]),{id:"tle"+Date.now(),date:new Date().toISOString().split("T")[0],phase:tlePhase,newDate:tleDate,reason:tleReason}],phases:p.phases.map(ph=>ph.key===tlePhase?{...ph,expectedEnd:tleDate}:ph)}));
+    const tleId = "tle"+Date.now();
+    updProj(proj.id,p=>({...p,timelineEdits:[...(p.timelineEdits||[]),{id:tleId,date:new Date().toISOString().split("T")[0],phase:tlePhase,newDate:tleDate,reason:tleReason}],phases:p.phases.map(ph=>ph.key===tlePhase?{...ph,expectedEnd:tleDate}:ph)}));
+    
+    // Insert to Supabase
+    (async () => {
+      try {
+        const { error: tleError } = await supabase
+          .from('timeline_edits')
+          .insert([{
+            id: tleId,
+            projectId: proj.id,
+            phase: tlePhase,
+            newDate: tleDate,
+            reason: tleReason,
+            date: new Date().toISOString().split("T")[0]
+          }]);
+        
+        if (tleError) throw tleError;
+        
+        // Update the phase's expectedEnd date
+        const { error: updateError } = await supabase
+          .from('project_phases')
+          .update({ expectedEnd: tleDate })
+          .eq('projectId', proj.id)
+          .eq('key', tlePhase);
+        
+        if (updateError) throw updateError;
+      } catch (err) {
+        console.error('Failed to save timeline edit:', err);
+      }
+    })();
+    
     setShowTLE(false); setTlePhase(""); setTleDate(""); setTleReason("");
   }
 
