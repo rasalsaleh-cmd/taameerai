@@ -329,8 +329,8 @@ function addDays(dateStr, days) {
 
 const SEED = {
   id:"p1", name:"DHA Phase 6 — Residential Villa", client:"Mr. Arif Hussain",
-  location:"DHA Phase 6, Lahore", type:"residential_premium", totalArea:4800, floors:2,
-  startDate:"2026-01-15", contractValue:48000000, status:"active", currentPhase:"grey", source:"manual",
+  location:"DHA Phase 6, Lahore", type:"residential_premium", total_area:4800, floors:2,
+  start_date:"2026-01-15", contract_value:48000000, status:"active", current_phase:"grey", source:"manual",
   phases: PHASES.map((p,i)=>({
     ...p, budget:Math.round(48000000*p.pct),
     spent: i<2?Math.round(48000000*p.pct*0.97):i===2?Math.round(48000000*p.pct*0.62):0,
@@ -448,7 +448,7 @@ export default function App() {
   const proj = activeProject ? projects.find(p=>p.id===activeProject) : null;
   const totalSpent = proj ? (proj.expenses||[]).reduce((s,e)=>s+e.amount,0) : 0;
   const coTotal    = proj ? (proj.changeOrders||[]).reduce((s,c)=>s+(c.amount||0),0) : 0;
-  const budgetLeft = proj ? proj.contractValue+coTotal-totalSpent : 0;
+  const budgetLeft = proj ? proj.contract_value+coTotal-totalSpent : 0;
 
   // ── FETCH PROJECTS FROM SUPABASE ──────────────────────────────
   useEffect(() => {
@@ -458,16 +458,20 @@ export default function App() {
           .from('projects')
           .select(`
             *,
-            project_phases(*),
+            phases:project_phases(*),
             expenses(*),
-            checklist_logs(*, checklist_items(*)),
-            change_orders(*),
-            timeline_edits(*)
+            checklistLogs:checklist_logs(*, items:checklist_items(*)),
+            changeOrders:change_orders(*),
+            timelineEdits:timeline_edits(*)
           `);
         
         if (error) throw error;
         if (data && data.length > 0) {
-          setProjects(data);
+          const safeProjects = data.map(project => ({
+            ...project,
+            phases: project.phases || []
+          }));
+          setProjects(safeProjects);
         }
       } catch (err) {
         console.error('Failed to fetch projects:', err);
@@ -640,11 +644,11 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
 
   function convertToProject() {
     if (!generatedQuote) return;
-    const np={
+    let np={
       id:"p_"+Date.now(),name:generatedQuote.name||"New Project",client:generatedQuote.client,
-      location:generatedQuote.location,type:generatedQuote.type,totalArea:generatedQuote.area,
-      floors:generatedQuote.flrs,startDate:new Date().toISOString().split("T")[0],
-      contractValue:generatedQuote.total,status:"active",currentPhase:"excavation",
+      location:generatedQuote.location,type:generatedQuote.type,total_area:generatedQuote.area,
+      floors:generatedQuote.flrs,start_date:new Date().toISOString().split("T")[0],
+      contract_value:generatedQuote.total,status:"active",current_phase:"excavation",
       source:quoteDrawingPreview?"ai":"manual",
       phases:generatedQuote.phases.map((p,i)=>({...p,spent:0,progress:0,status:i===0?"active":"pending",budget:p.budget})),
       checklistLogs:[],expenses:[],changeOrders:[],timelineEdits:[],
@@ -653,26 +657,31 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
     // Insert to Supabase
     (async () => {
       try {
-        const { error: projError } = await supabase.from('projects').insert([{
-          id: np.id,
-          name: np.name,
-          client: np.client,
-          location: np.location,
-          type: np.type,
-          totalArea: np.totalArea,
-          floors: np.floors,
-          startDate: np.startDate,
-          contractValue: np.contractValue,
-          status: np.status,
-          currentPhase: np.currentPhase,
-          source: np.source
-        }]);
-        
+        const { data: createdProject, error: projError } = await supabase
+          .from('projects')
+          .insert([{
+            name: np.name,
+            client: np.client,
+            location: np.location,
+            type: np.type,
+            totalArea: np.total_area,
+            floors: np.floors,
+            startDate: np.start_date,
+            contractValue: np.contract_value,
+            status: np.status,
+            currentPhase: np.current_phase,
+            source: np.source
+          }])
+          .select('id')
+          .single();
+
         if (projError) throw projError;
-        
+
+        // Ensure we use the DB-generated id for subsequent inserts
+        np.id = createdProject?.id || np.id;
+
         // Insert phases
         const phasesData = np.phases.map(p => ({
-          id: `ph_${Date.now()}_${Math.random()}`,
           projectId: np.id,
           key: p.key,
           budget: p.budget,
@@ -681,7 +690,7 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
           status: p.status,
           expectedEnd: p.expectedEnd || null
         }));
-        
+
         const { error: phaseError } = await supabase.from('project_phases').insert(phasesData);
         if (phaseError) throw phaseError;
       } catch (err) {
@@ -862,7 +871,7 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
   }
   function getBudgetStatus(p) {
     const sp=(p.expenses||[]).reduce((s,e)=>s+e.amount,0);
-    const pct=sp/p.contractValue;
+    const pct=sp/p.contract_value;
     return pct>1?"over":pct>0.85?"watch":"ok";
   }
 
@@ -1022,7 +1031,7 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
   // ── VIEWS ──────────────────────────────────────────────────
 
   function Dashboard() {
-    const tc=projects.reduce((s,p)=>s+p.contractValue,0);
+    const tc=projects.reduce((s,p)=>s+p.contract_value,0);
     const ts=projects.reduce((s,p)=>s+(p.expenses||[]).reduce((a,e)=>a+e.amount,0),0);
     return (
       <div className="page fade-in">
@@ -1051,7 +1060,7 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
         <div className="proj-grid">
           {projects.map(p=>{
             const sp=(p.expenses||[]).reduce((s,e)=>s+e.amount,0);
-            const pct=Math.round(sp/p.contractValue*100);
+            const pct=Math.round(sp/p.contract_value*100);
             const ap=p.phases.find(ph=>ph.status==="active");
             const ts=getTimelineStatus(p), bs=getBudgetStatus(p);
             return (
@@ -1066,7 +1075,7 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
                 <div className="bar-bg"><div className={`bar ${pct>100?"bar-r":pct>85?"bar-y":"bar-g"}`} style={{width:`${Math.min(pct,100)}%`}}/></div>
                 <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}>
                   <span style={{fontSize:9,color:"var(--text3)"}}>{fPKR(sp)} spent</span>
-                  <span style={{fontSize:9,color:"var(--text3)"}}>{fPKR(p.contractValue)}</span>
+                  <span style={{fontSize:9,color:"var(--text3)"}}>{fPKR(p.contract_value)}</span>
                 </div>
               </div>
             );
@@ -1103,7 +1112,7 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
           <div style={{display:"flex",gap:7,marginTop:4}}>
             {role==="owner"&&<button className="btn-ghost btn-sm" onClick={()=>setShowCO(true)}>Change Order</button>}
             {role==="owner"&&<button className="btn-ghost btn-sm" onClick={()=>setShowTLE(true)}>Edit Timeline</button>}
-            {role==="owner"&&<button className="btn-ghost btn-sm" onClick={()=>{setClEditorScope("project");setClEditorPhase(proj?.currentPhase||"grey");setClEditorOpen(true);}}>✏️ Checklists</button>}
+            {role==="owner"&&<button className="btn-ghost btn-sm" onClick={()=>{setClEditorScope("project");setClEditorPhase(proj?.current_phase||"grey");setClEditorOpen(true);}}>✏️ Checklists</button>}
             {role==="supervisor"&&<button className="btn btn-sm" onClick={()=>setView("supervisor")}>Open Today's Log</button>}
           </div>
         </div>
@@ -1118,13 +1127,13 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
         {projectTab==="overview"&&(
           <>
             <div className="stat-row">
-              {[{v:fPKR(proj.contractValue),l:"Contract",c:"var(--gold)"},{v:fPKR(totalSpent),l:"Spent",c:"var(--text)"},{v:fPKR(budgetLeft),l:budgetLeft>=0?"Remaining":"Over Budget",c:budgetLeft<0?"var(--red)":"#58A878"},{v:`${proj.phases.filter(p=>p.status==="done").length}/${proj.phases.length}`,l:"Phases Done",c:"var(--text)"}].map((s,i)=>(
+              {[{v:fPKR(proj.contract_value),l:"Contract",c:"var(--gold)"},{v:fPKR(totalSpent),l:"Spent",c:"var(--text)"},{v:fPKR(budgetLeft),l:budgetLeft>=0?"Remaining":"Over Budget",c:budgetLeft<0?"var(--red)":"#58A878"},{v:`${proj.phases.filter(p=>p.status==="done").length}/${proj.phases.length}`,l:"Phases Done",c:"var(--text)"}].map((s,i)=>(
                 <div key={i} className="stat-box"><div className="stat-v mono" style={{color:s.c}}>{s.v}</div><div className="stat-l">{s.l}</div></div>
               ))}
             </div>
             <div className="card">
               <div className="card-t">Project Details</div>
-              {[["Build Type",BUILD_TYPES[proj.type]?.label||proj.type],["Total Area",`${proj.totalArea?.toLocaleString()} sq ft`],["Floors",proj.floors],["Start Date",fDate(proj.startDate)],["Current Phase",ap?.label||"Complete"],["Source",proj.source==="ai"?"AI Drawing Analysis":"Manual Entry"]].map(([k,v])=>(
+              {[["Build Type",BUILD_TYPES[proj.type]?.label||proj.type],["Total Area",`${proj.total_area?.toLocaleString()} sq ft`],["Floors",proj.floors],["Start Date",fDate(proj.start_date)],["Current Phase",ap?.label||"Complete"],["Source",proj.source==="ai"?"AI Drawing Analysis":"Manual Entry"]].map(([k,v])=>(
                 <div key={k} className="data-row"><div className="d-info"><div className="d-meta">{k}</div><div className="d-name">{v}</div></div></div>
               ))}
             </div>
@@ -1570,10 +1579,10 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
                 <div style={{textAlign:"right"}}><div style={{fontWeight:700,color:"#C4A35A",fontSize:13,fontFamily:"'Syne',sans-serif"}}>TaameerAI</div><div style={{fontSize:11,color:"#999"}}>{fDate(new Date().toISOString().split("T")[0])}</div></div>
               </div>
               <div style={{marginBottom:16}}><div className="rep-sec-t">Project Overview</div>
-                {[["Client",proj.client],["Location",proj.location],["Contract",fPKR(proj.contractValue)],["Start Date",fDate(proj.startDate)]].map(([k,v])=><div key={k} className="rep-row"><span style={{color:"#666"}}>{k}</span><span style={{fontWeight:600}}>{v}</span></div>)}
+                {[["Client",proj.client],["Location",proj.location],["Contract",fPKR(proj.contract_value)],["Start Date",fDate(proj.start_date)]].map(([k,v])=><div key={k} className="rep-row"><span style={{color:"#666"}}>{k}</span><span style={{fontWeight:600}}>{v}</span></div>)}
               </div>
               {opts.timeline&&<div style={{marginBottom:16}}><div className="rep-sec-t">Phase Progress</div>{proj.phases.map(p=><div key={p.key} className="rep-row"><span style={{color:"#666"}}>{p.label}</span><span style={{fontWeight:600,color:p.status==="done"?"#58A878":p.status==="active"?"#C4A35A":"#aaa"}}>{p.status==="done"?"✓ Complete":p.status==="active"?`${p.progress||0}% In Progress`:"Pending"}</span></div>)}</div>}
-              {opts.costs&&<div style={{marginBottom:16}}><div className="rep-sec-t">Cost Summary</div><div className="rep-row"><span style={{color:"#666"}}>Contract</span><span style={{fontWeight:600}}>{fPKR(proj.contractValue)}</span></div><div className="rep-row"><span style={{color:"#666"}}>Spent</span><span style={{fontWeight:600}}>{fPKR(sp)}</span></div><div className="rep-row"><span style={{color:"#666"}}>Remaining</span><span style={{fontWeight:600,color:"#58A878"}}>{fPKR(proj.contractValue-sp)}</span></div></div>}
+              {opts.costs&&<div style={{marginBottom:16}}><div className="rep-sec-t">Cost Summary</div><div className="rep-row"><span style={{color:"#666"}}>Contract</span><span style={{fontWeight:600}}>{fPKR(proj.contract_value)}</span></div><div className="rep-row"><span style={{color:"#666"}}>Spent</span><span style={{fontWeight:600}}>{fPKR(sp)}</span></div><div className="rep-row"><span style={{color:"#666"}}>Remaining</span><span style={{fontWeight:600,color:"#58A878"}}>{fPKR(proj.contract_value-sp)}</span></div></div>}
               {opts.co&&(proj.changeOrders||[]).length>0&&<div style={{marginBottom:16}}><div className="rep-sec-t">Change Orders</div>{proj.changeOrders.map(co=><div key={co.id} className="rep-row"><span style={{color:"#666"}}>{co.description}</span><span style={{fontWeight:600}}>{co.amount>0?"+":""}{fPKR(co.amount)}</span></div>)}</div>}
               {opts.photos&&allPhotos.length>0&&<div style={{marginBottom:16}}><div className="rep-sec-t">Site Photos</div><div className="rep-photos">{allPhotos.slice(0,6).map((ph,i)=><img key={i} src={ph} alt="" style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",borderRadius:4,border:"1px solid #eee"}}/>)}</div></div>}
               {note&&<div><div className="rep-sec-t">Notes</div><p style={{fontSize:12,color:"#444",lineHeight:1.5}}>{note}</p></div>}
@@ -2008,20 +2017,20 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
   }
 
   function NewProjectView() {
-    const [form,setForm]=useState({name:"",client:"",location:"",type:"residential_premium",area:"",floors:"2",contractValue:"",startDate:new Date().toISOString().split("T")[0],currentPhase:"foundation"});
+    const [form,setForm]=useState({name:"",client:"",location:"",type:"residential_premium",area:"",floors:"2",contract_value:"",start_date:new Date().toISOString().split("T")[0],current_phase:"foundation"});
     const [drawPrev,setDrawPrev]=useState(null);
     const fileRef=useRef(null);
     function create() {
       const np={
         id:"p_"+Date.now(),...form,
-        totalArea:parseFloat(form.area)||0,floors:parseInt(form.floors)||1,
-        contractValue:parseFloat(form.contractValue)||0,status:"active",
+        total_area:parseFloat(form.area)||0,floors:parseInt(form.floors)||1,
+        contract_value:parseFloat(form.contract_value)||0,status:"active",
         source:drawPrev?"ai":"manual",
         phases:PHASES.map((p,i)=>{
-          const ci=PHASES.findIndex(x=>x.key===form.currentPhase),idx=i;
-          return {...p,budget:Math.round((parseFloat(form.contractValue)||0)*p.pct),spent:0,
+          const ci=PHASES.findIndex(x=>x.key===form.current_phase),idx=i;
+          return {...p,budget:Math.round((parseFloat(form.contract_value)||0)*p.pct),spent:0,
             progress:idx<ci?100:idx===ci?50:0,status:idx<ci?"done":idx===ci?"active":"pending",
-            expectedEnd:addDays(form.startDate,PHASES.slice(0,i+1).reduce((s,x)=>s+x.days,0))};
+            expectedEnd:addDays(form.start_date,PHASES.slice(0,i+1).reduce((s,x)=>s+x.days,0))};
         }),
         checklistLogs:[],expenses:[],changeOrders:[],timelineEdits:[],
       };
@@ -2051,11 +2060,11 @@ Types: living, bedroom, kitchen, bathroom, dining, garage, study, servant, stair
             <div><div className="fl">Location</div><input className="fi" value={form.location} onChange={e=>setForm(f=>({...f,location:e.target.value}))}/></div>
             <div><div className="fl">Build Type</div><select className="fs" value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}>{Object.entries(BUILD_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div>
             <div><div className="fl">Covered Area (sq ft)</div><input className="fi" type="number" value={form.area} onChange={e=>setForm(f=>({...f,area:e.target.value}))}/></div>
-            <div><div className="fl">Contract Value (PKR)</div><input className="fi" type="number" placeholder="e.g. 48000000" value={form.contractValue} onChange={e=>setForm(f=>({...f,contractValue:e.target.value}))}/></div>
-            <div><div className="fl">Start Date</div><input className="fi" type="date" value={form.startDate} onChange={e=>setForm(f=>({...f,startDate:e.target.value}))}/></div>
-            <div><div className="fl">Current Phase</div><select className="fs" value={form.currentPhase} onChange={e=>setForm(f=>({...f,currentPhase:e.target.value}))}>{PHASES.map(p=><option key={p.key} value={p.key}>{p.label}</option>)}</select></div>
+            <div><div className="fl">Contract Value (PKR)</div><input className="fi" type="number" placeholder="e.g. 48000000" value={form.contract_value} onChange={e=>setForm(f=>({...f,contract_value:e.target.value}))}/></div>
+            <div><div className="fl">Start Date</div><input className="fi" type="date" value={form.start_date} onChange={e=>setForm(f=>({...f,start_date:e.target.value}))}/></div>
+            <div><div className="fl">Current Phase</div><select className="fs" value={form.current_phase} onChange={e=>setForm(f=>({...f,current_phase:e.target.value}))}>{PHASES.map(p=><option key={p.key} value={p.key}>{p.label}</option>)}</select></div>
           </div>
-          <button className="btn" style={{marginTop:14,width:"100%"}} disabled={!form.name||!form.contractValue} onClick={create}>IMPORT PROJECT →</button>
+          <button className="btn" style={{marginTop:14,width:"100%"}} disabled={!form.name||!form.contract_value} onClick={create}>IMPORT PROJECT →</button>
         </div>
       </div>
     );
