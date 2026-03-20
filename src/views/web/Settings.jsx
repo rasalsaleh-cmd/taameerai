@@ -1,16 +1,40 @@
 /**
  * Settings.jsx — SiteOS App Settings
- * Theme, Rate Database, and About tabs.
- * Rate Database and Checklist config moved here from nav.
+ * Tabs: Appearance, Rate Database, Team & Access, About
+ * Owner can preview Supervisor View from Team & Access tab.
  */
 
 import { useState } from "react";
 import { DEFAULT_RATES } from "../../constants/rates.js";
+import SupervisorApp from "../supervisor-mobile/SupervisorApp.jsx";
 
-const TABS = ["Appearance", "Rate Database", "About"];
+const TABS = ["Appearance", "Rate Database", "Team & Access", "About"];
 
 export default function Settings({ theme, setTheme }) {
   const [activeTab, setActiveTab] = useState("Appearance");
+  const [previewingSupervisor, setPreviewingSupervisor] = useState(false);
+
+  // Full screen supervisor preview
+  if (previewingSupervisor) {
+    return (
+      <div style={styles.previewWrapper}>
+        <div style={styles.previewBanner}>
+          <span style={styles.previewBannerText}>
+            👁 Previewing Supervisor View
+          </span>
+          <button
+            style={styles.previewExitBtn}
+            onClick={() => setPreviewingSupervisor(false)}
+          >
+            ✕ Exit Preview
+          </button>
+        </div>
+        <div style={styles.previewPhone}>
+          <SupervisorApp />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>
@@ -32,10 +56,10 @@ export default function Settings({ theme, setTheme }) {
         ))}
       </div>
 
-      {/* Tab Content */}
-      {activeTab === "Appearance" && <AppearanceTab theme={theme} setTheme={setTheme} />}
+      {activeTab === "Appearance"    && <AppearanceTab theme={theme} setTheme={setTheme} />}
       {activeTab === "Rate Database" && <RateDatabaseTab />}
-      {activeTab === "About" && <AboutTab />}
+      {activeTab === "Team & Access" && <TeamTab onPreviewSupervisor={() => setPreviewingSupervisor(true)} />}
+      {activeTab === "About"         && <AboutTab />}
     </div>
   );
 }
@@ -47,7 +71,6 @@ function AppearanceTab({ theme, setTheme }) {
     { key: "light",  label: "Light Mode",    desc: "Professional grey theme",    icon: "☀" },
     { key: "dark",   label: "Dark Mode",     desc: "Very dark grey theme",       icon: "◑" },
   ];
-
   return (
     <div style={styles.tabContent}>
       <div style={styles.sectionTitle}>Theme</div>
@@ -142,6 +165,43 @@ function RateDatabaseTab() {
   );
 }
 
+// ─── Team & Access Tab ───────────────────────────────────────
+function TeamTab({ onPreviewSupervisor }) {
+  return (
+    <div style={styles.tabContent}>
+      {/* Supervisor Preview */}
+      <div style={styles.previewCard}>
+        <div style={styles.previewCardLeft}>
+          <div style={styles.previewCardTitle}>Supervisor View Preview</div>
+          <div style={styles.previewCardDesc}>
+            See exactly what your on-site supervisors see when they open SiteOS.
+            High visibility interface designed for dusty construction sites.
+          </div>
+        </div>
+        <button style={styles.previewBtn} onClick={onPreviewSupervisor}>
+          👁 Preview
+        </button>
+      </div>
+
+      {/* Auth coming soon */}
+      <div style={styles.comingSoonCard}>
+        <div style={styles.comingSoonIcon}>🔐</div>
+        <div style={styles.comingSoonTitle}>Team Management Coming Soon</div>
+        <div style={styles.comingSoonDesc}>
+          Add managers and supervisors, assign them to projects, and control access.
+          Full authentication system coming in the next build session.
+        </div>
+        <div style={styles.comingSoonFeatures}>
+          <div style={styles.comingSoonFeature}>✦ Email & phone number login</div>
+          <div style={styles.comingSoonFeature}>✦ Owner creates team accounts</div>
+          <div style={styles.comingSoonFeature}>✦ Supervisors assigned to sub-phases</div>
+          <div style={styles.comingSoonFeature}>✦ Manager role for delegation</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── About Tab ───────────────────────────────────────────────
 function AboutTab() {
   return (
@@ -202,4 +262,20 @@ const styles = {
   infoRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: "1px solid var(--border)" },
   infoKey: { fontSize: "0.85rem", color: "var(--text-muted)", fontWeight: 500 },
   infoVal: { fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 600 },
+  previewWrapper: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "var(--bg-primary)", zIndex: 1000, display: "flex", flexDirection: "column" },
+  previewBanner: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 24px", background: "var(--gold)", flexShrink: 0 },
+  previewBannerText: { fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "0.875rem", color: "#000" },
+  previewExitBtn: { padding: "6px 16px", background: "#000", color: "var(--gold)", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer", fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "0.8rem" },
+  previewPhone: { flex: 1, overflow: "auto", maxWidth: 390, margin: "0 auto", width: "100%", background: "#FFF", boxShadow: "var(--shadow-lg)" },
+  previewCard: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "20px 24px", gap: 20 },
+  previewCardLeft: { flex: 1 },
+  previewCardTitle: { fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "1rem", color: "var(--text-primary)", marginBottom: 6 },
+  previewCardDesc: { fontSize: "0.85rem", color: "var(--text-muted)", lineHeight: 1.5 },
+  previewBtn: { padding: "12px 24px", background: "var(--gold)", color: "#000", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer", fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "0.9rem", whiteSpace: "nowrap" },
+  comingSoonCard: { background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 24, textAlign: "center" },
+  comingSoonIcon: { fontSize: "2.5rem", marginBottom: 12 },
+  comingSoonTitle: { fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "1.1rem", color: "var(--text-primary)", marginBottom: 8 },
+  comingSoonDesc: { fontSize: "0.875rem", color: "var(--text-muted)", lineHeight: 1.6, marginBottom: 20 },
+  comingSoonFeatures: { display: "flex", flexDirection: "column", gap: 8, textAlign: "left", maxWidth: 300, margin: "0 auto" },
+  comingSoonFeature: { fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 500 },
 };
