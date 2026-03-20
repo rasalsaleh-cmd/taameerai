@@ -92,6 +92,12 @@ export default function ChecklistItem({ item, index, total, onResponse }) {
             <span style={styles.btnIcon}>✕</span>
             <span style={styles.btnLabel}>NO</span>
           </button>
+          <button
+            style={styles.skipBtn}
+            onClick={() => onResponse("pending", null, "Skipped")}
+          >
+            Skip for now →
+          </button>
         </div>
       )}
 
@@ -245,11 +251,11 @@ const styles = {
   skipBtn: {
     background: "transparent",
     border: "none",
-    color: "#888",
-    fontSize: "0.875rem",
+    color: "#999",
+    fontSize: "0.9rem",
     cursor: "pointer",
-    padding: "8px",
-    textDecoration: "underline",
+    padding: "12px",
+    transition: "color 0.15s ease",
   },
   reasonWrap: {
     display: "flex",

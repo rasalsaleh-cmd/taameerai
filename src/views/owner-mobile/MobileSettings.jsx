@@ -4,12 +4,33 @@
  * Cog icon accessible from top right of mobile header.
  */
 
+import { useState } from "react";
+import SupervisorApp from "../supervisor-mobile/SupervisorApp.jsx";
+
 export default function MobileSettings({ theme, setTheme }) {
+  const [showSupervisorPreview, setShowSupervisorPreview] = useState(false);
   const themes = [
     { key: "system", label: "Follow System", desc: "Matches your device", icon: "⊙" },
     { key: "light",  label: "Light Mode",    desc: "Professional grey",  icon: "☀" },
     { key: "dark",   label: "Dark Mode",     desc: "Very dark grey",     icon: "◑" },
   ];
+
+  if (showSupervisorPreview) {
+    return (
+      <div style={styles.supervisorPreviewContainer}>
+        <div style={styles.supervisorBanner}>
+          <span>👷 Previewing Supervisor View</span>
+          <button
+            onClick={() => setShowSupervisorPreview(false)}
+            style={styles.exitBtn}
+          >
+            Exit
+          </button>
+        </div>
+        <SupervisorApp />
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>
@@ -39,6 +60,18 @@ export default function MobileSettings({ theme, setTheme }) {
         ))}
       </div>
 
+      {/* Team & Access */}
+      <div style={styles.section}>
+        <div style={styles.sectionLabel}>Team & Access</div>
+        <button
+          onClick={() => setShowSupervisorPreview(true)}
+          style={styles.previewBtn}
+        >
+          <span style={styles.btnIcon}>👁</span>
+          <span>Preview Supervisor View</span>
+        </button>
+      </div>
+
       {/* App Info */}
       <div style={styles.section}>
         <div style={styles.sectionLabel}>About</div>
@@ -60,6 +93,33 @@ export default function MobileSettings({ theme, setTheme }) {
 }
 
 const styles = {
+  supervisorPreviewContainer: {
+    display: "flex",
+    flexDirection: "column",
+    height: "100dvh",
+    background: "var(--bg-primary)",
+  },
+  supervisorBanner: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "12px 16px",
+    background: "var(--gold)",
+    color: "#000",
+    fontWeight: 700,
+    fontSize: "0.9rem",
+    flexShrink: 0,
+  },
+  exitBtn: {
+    padding: "6px 14px",
+    background: "rgba(0,0,0,0.2)",
+    border: "none",
+    borderRadius: 6,
+    color: "#000",
+    fontWeight: 600,
+    fontSize: "0.8rem",
+    cursor: "pointer",
+  },
   container: { paddingBottom: 20 },
   header: { padding: "16px 20px 12px", borderBottom: "1px solid var(--border)" },
   title: { fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: "1.1rem", color: "var(--text-primary)" },
@@ -76,4 +136,23 @@ const styles = {
   infoRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderBottom: "1px solid var(--border)" },
   infoKey: { fontSize: "0.85rem", color: "var(--text-muted)" },
   infoVal: { fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 600 },
+  previewBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    width: "100%",
+    padding: "12px 16px",
+    background: "var(--gold)",
+    border: "none",
+    borderRadius: "var(--radius-md)",
+    color: "#000",
+    fontFamily: "var(--font-heading)",
+    fontWeight: 600,
+    fontSize: "0.95rem",
+    cursor: "pointer",
+    transition: "all var(--transition)",
+  },
+  btnIcon: {
+    fontSize: "1.1rem",
+  },
 };
