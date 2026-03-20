@@ -128,6 +128,7 @@ function OverviewTab({ project, totalSpent, topLevelPhases, allPhases }) {
 }
 
 // ─── Phases Tab ─────────────────────────────────────────────
+// ─── Phases Tab ─────────────────────────────────────────────
 function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, deletePhase, fetchProjects }) {
   const [expandedPhase, setExpandedPhase] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -136,11 +137,20 @@ function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, 
   const [newSubPhaseLabel, setNewSubPhaseLabel] = useState("");
   const [addingSubTo, setAddingSubTo] = useState(null);
   const [expandedChecklist, setExpandedChecklist] = useState(null);
+  const [expandedSchedule, setExpandedSchedule] = useState(null);
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [addingChecklistTo, setAddingChecklistTo] = useState(null);
+  const [addingMaterialTo, setAddingMaterialTo] = useState(null);
+  const [materialForm, setMaterialForm] = useState({ material_name: "", quantity: "", unit: "bags", expected_date: "", supplier: "", unit_rate: "" });
+  const [schedules, setSchedules] = useState({});
 
   const getSubPhases = (parentId) => allPhases.filter((p) => p.parent_phase_id === parentId);
   const statusColor = { done: "var(--green)", active: "var(--gold)", pending: "var(--text-muted)" };
+
+  async function loadSchedule(phaseId) {
+    const { data } = await supabase.from("material_schedule").select("*").eq("phase_id", phaseId).order("created_at");
+    setSchedules((prev) => ({ ...prev, [phaseId]: data || [] }));
+  }
 
   async function saveEdit(id) {
     await updatePhase(id, editValues);
@@ -159,10 +169,7 @@ function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, 
       projectId: project.id,
       key: newSubPhaseLabel.toLowerCase().replace(/\s+/g, "_"),
       label: newSubPhaseLabel,
-      budget: 0,
-      spent: 0,
-      progress: 0,
-      status: "pending",
+      budget: 0, spent: 0, progress: 0, status: "pending",
       parent_phase_id: parentId,
     });
     if (!error) { await fetchProjects(); setNewSubPhaseLabel(""); setAddingSubTo(null); }
@@ -170,12 +177,7 @@ function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, 
 
   async function addChecklistItem(phaseId) {
     if (!newChecklistItem.trim()) return;
-    const { error } = await supabase.from("phase_checklist_items").insert({
-      phase_id: phaseId,
-      item: newChecklistItem.trim(),
-      photo_required: false,
-      sort_order: 0,
-    });
+    const { error } = await supabase.from("phase_checklist_items").insert({ phase_id: phaseId, item: newChecklistItem.trim(), photo_required: false, sort_order: 0 });
     if (!error) { await fetchProjects(); setNewChecklistItem(""); setAddingChecklistTo(null); }
   }
 
@@ -189,6 +191,43 @@ function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, 
     await fetchProjects();
   }
 
+  async function addMaterialSchedule(phaseId) {
+    if (!materialForm.material_name.trim() || !materialForm.quantity) return;
+    const { error } = await supabase.from("material_schedule").insert({
+      project_id: project.id,
+      phase_id: phaseId,
+      material_name: materialForm.material_name,
+      quantity: Number(materialForm.quantity),
+      unit: materialForm.unit,
+      expected_date: materialForm.expected_date || null,
+      supplier: materialForm.supplier || null,
+      unit_rate: Number(materialForm.unit_rate) || 0,
+      status: "pending",
+    });
+    if (!error) {
+      await loadSchedule(phaseId);
+      setMaterialForm({ material_name: "", quantity: "", unit: "bags", expected_date: "", supplier: "", unit_rate: "" });
+      setAddingMaterialTo(null);
+    }
+  }
+
+  async function updateMaterialStatus(id, status, phaseId) {
+    await supabase.from("material_schedule").update({ status }).eq("id", id);
+    await loadSchedule(phaseId);
+  }
+
+  async function deleteMaterial(id, phaseId) {
+    await supabase.from("material_schedule").delete().eq("id", id);
+    await loadSchedule(phaseId);
+  }
+
+  const statusBadge = {
+    pending:   { bg: "var(--bg-tertiary)",  color: "var(--text-muted)" },
+    partial:   { bg: "var(--amber-bg)",     color: "var(--amber)" },
+    delivered: { bg: "var(--green-bg)",     color: "var(--green)" },
+    cancelled: { bg: "var(--red-bg)",       color: "var(--red)" },
+  };
+
   return (
     <div style={styles.tabContent}>
       {topLevelPhases.map((phase) => {
@@ -197,7 +236,6 @@ function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, 
 
         return (
           <div key={phase.id} style={styles.phaseBlock}>
-            {/* Phase Header */}
             <div style={styles.phaseHeader}>
               <div style={styles.phaseHeaderLeft} onClick={() => setExpandedPhase(isExpanded ? null : phase.id)}>
                 <div style={{ width: 10, height: 10, borderRadius: "50%", background: statusColor[phase.status] || "var(--text-muted)", flexShrink: 0 }} />
@@ -226,12 +264,10 @@ function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, 
               </div>
             </div>
 
-            {/* Sub-phases */}
             {isExpanded && (
               <div style={styles.subPhasesContainer}>
                 {subPhases.map((sp) => (
                   <div key={sp.id} style={styles.subPhaseBlock}>
-                    {/* Sub-phase Row */}
                     <div style={styles.subPhaseRow}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor[sp.status] || "var(--text-muted)", flexShrink: 0 }} />
@@ -241,8 +277,19 @@ function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, 
                         </span>
                       </div>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <button style={styles.checklistToggle} onClick={() => setExpandedChecklist(expandedChecklist === sp.id ? null : sp.id)}>
-                          📋 {(sp.checklist_items || []).length} items
+                        <button style={styles.checklistToggle} onClick={() => {
+                          setExpandedChecklist(expandedChecklist === sp.id ? null : sp.id);
+                          setExpandedSchedule(null);
+                        }}>
+                          📋 {(sp.checklist_items || []).length}
+                        </button>
+                        <button style={{ ...styles.checklistToggle, background: "var(--gold-dim)", color: "var(--gold)" }} onClick={() => {
+                          const newId = expandedSchedule === sp.id ? null : sp.id;
+                          setExpandedSchedule(newId);
+                          setExpandedChecklist(null);
+                          if (newId) loadSchedule(sp.id);
+                        }}>
+                          📦 Materials
                         </button>
                         <select style={styles.statusSelect} value={sp.status} onChange={(e) => updatePhase(sp.id, { status: e.target.value })}>
                           <option value="pending">Pending</option>
@@ -278,10 +325,69 @@ function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, 
                         )}
                       </div>
                     )}
+
+                    {/* Material Schedule */}
+                    {expandedSchedule === sp.id && (
+                      <div style={styles.checklistContainer}>
+                        <div style={styles.scheduleHeader}>Material Schedule</div>
+                        {(schedules[sp.id] || []).map((mat) => (
+                          <div key={mat.id} style={styles.materialRow}>
+                            <div style={{ flex: 1 }}>
+                              <div style={styles.materialName}>{mat.material_name}</div>
+                              <div style={styles.materialMeta}>
+                                {mat.quantity} {mat.unit}
+                                {mat.supplier ? ` · ${mat.supplier}` : ""}
+                                {mat.expected_date ? ` · Due ${mat.expected_date}` : ""}
+                                {mat.unit_rate > 0 ? ` · ₨${(mat.quantity * mat.unit_rate).toLocaleString()}` : ""}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <select
+                                style={{ ...styles.statusSelect, background: statusBadge[mat.status]?.bg, color: statusBadge[mat.status]?.color }}
+                                value={mat.status}
+                                onChange={(e) => updateMaterialStatus(mat.id, e.target.value, sp.id)}
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="partial">Partial</option>
+                                <option value="delivered">Delivered</option>
+                                <option value="cancelled">Cancelled</option>
+                              </select>
+                              <button style={styles.deleteBtn} onClick={() => deleteMaterial(mat.id, sp.id)}>✕</button>
+                            </div>
+                          </div>
+                        ))}
+
+                        {addingMaterialTo === sp.id ? (
+                          <div style={styles.materialForm}>
+                            <div style={styles.formRow}>
+                              <input style={styles.addInput} value={materialForm.material_name} onChange={(e) => setMaterialForm({ ...materialForm, material_name: e.target.value })} placeholder="Material name (e.g. DG Cement)" />
+                            </div>
+                            <div style={styles.formRow}>
+                              <input style={{ ...styles.addInput, flex: 1 }} type="number" value={materialForm.quantity} onChange={(e) => setMaterialForm({ ...materialForm, quantity: e.target.value })} placeholder="Quantity" />
+                              <select style={styles.addInput} value={materialForm.unit} onChange={(e) => setMaterialForm({ ...materialForm, unit: e.target.value })}>
+                                {["bags", "kg", "tons", "pcs", "cft", "sqft", "rft", "litres"].map((u) => <option key={u} value={u}>{u}</option>)}
+                              </select>
+                            </div>
+                            <div style={styles.formRow}>
+                              <input style={styles.addInput} value={materialForm.supplier} onChange={(e) => setMaterialForm({ ...materialForm, supplier: e.target.value })} placeholder="Supplier (optional)" />
+                              <input style={styles.addInput} type="date" value={materialForm.expected_date} onChange={(e) => setMaterialForm({ ...materialForm, expected_date: e.target.value })} />
+                            </div>
+                            <div style={styles.formRow}>
+                              <input style={styles.addInput} type="number" value={materialForm.unit_rate} onChange={(e) => setMaterialForm({ ...materialForm, unit_rate: e.target.value })} placeholder="Unit rate ₨ (optional)" />
+                            </div>
+                            <div style={styles.addRow}>
+                              <button style={styles.addBtn} onClick={() => addMaterialSchedule(sp.id)}>Add Material</button>
+                              <button style={styles.cancelBtn} onClick={() => setAddingMaterialTo(null)}>Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button style={styles.addItemBtn} onClick={() => setAddingMaterialTo(sp.id)}>+ Add Expected Material</button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
 
-                {/* Add Sub-phase */}
                 {addingSubTo === phase.id ? (
                   <div style={styles.addRow}>
                     <input style={styles.addInput} value={newSubPhaseLabel} onChange={(e) => setNewSubPhaseLabel(e.target.value)} placeholder="Sub-phase name..." onKeyDown={(e) => e.key === "Enter" && handleAddSubPhase(phase.id)} autoFocus />
@@ -297,7 +403,6 @@ function PhasesTab({ project, allPhases, topLevelPhases, updatePhase, addPhase, 
         );
       })}
 
-      {/* Add Top-level Phase */}
       <div style={styles.addPhaseRow}>
         <input style={styles.addInput} value={newPhaseLabel} onChange={(e) => setNewPhaseLabel(e.target.value)} placeholder="New phase name..." onKeyDown={(e) => e.key === "Enter" && handleAddPhase()} />
         <button style={styles.addBtn} onClick={handleAddPhase}>+ Add Phase</button>
@@ -470,4 +575,9 @@ const styles = {
   formCard: { background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 16, display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 },
   expenseRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--border)" },
   logRow: { padding: "12px 0", borderBottom: "1px solid var(--border)" },
-};
+scheduleHeader: { fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "0.75rem", color: "var(--gold)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 },
+  materialRow: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)", gap: 10 },
+  materialName: { fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: 2 },
+  materialMeta: { fontSize: "0.75rem", color: "var(--text-muted)" },
+  materialForm: { display: "flex", flexDirection: "column", gap: 8, padding: "12px 0" },
+  formRow: { display: "flex", gap: 8 },};

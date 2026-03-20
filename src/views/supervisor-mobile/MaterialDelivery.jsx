@@ -1,14 +1,17 @@
 /**
  * MaterialDelivery.jsx — SiteOS Supervisor Material Delivery Log
- * Supervisor logs incoming material deliveries on site.
- * Large inputs, simple flow, photo capture for delivery proof.
+ * Shows owner-scheduled materials for the active sub-phase.
+ * Supervisor taps a scheduled material or logs a new one.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "../../supabase.js";
 
 const MATERIAL_TYPES = ["Cement", "Steel", "Bricks", "Sand", "Crush", "Timber", "Tiles", "Paint", "Pipes", "Other"];
 
 export default function MaterialDelivery({ project, logMaterialDelivery }) {
+  const [scheduledMaterials, setScheduledMaterials] = useState([]);
+  const [scheduledId, setScheduledId] = useState(null);
   const [materialType, setMaterialType] = useState("");
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("bags");
@@ -17,7 +20,22 @@ export default function MaterialDelivery({ project, logMaterialDelivery }) {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const activePhase = (project.phases || []).find((p) => p.status === "active");
+  const activePhase = (project.phases || []).find((p) => p.parent_phase_id && p.status === "active")
+    || (project.phases || []).find((p) => p.status === "active");
+
+  useEffect(() => {
+    if (activePhase?.id) loadSchedule(activePhase.id);
+  }, [activePhase?.id]);
+
+  async function loadSchedule(phaseId) {
+    const { data } = await supabase
+      .from("material_schedule")
+      .select("*")
+      .eq("phase_id", phaseId)
+      .eq("status", "pending")
+      .order("expected_date");
+    setScheduledMaterials(data || []);
+  }
 
   async function handleSubmit() {
     if (!materialType || !quantity) return;
@@ -31,6 +49,15 @@ export default function MaterialDelivery({ project, logMaterialDelivery }) {
         supplier: supplier || "Unknown",
         amount: Number(amount) || 0,
       });
+
+      // Update schedule status if linked
+      if (scheduledId) {
+        await supabase
+          .from("material_schedule")
+          .update({ status: "delivered" })
+          .eq("id", scheduledId);
+      }
+
       setSubmitted(true);
     } catch (err) {
       console.error("Failed to log delivery:", err);
@@ -40,12 +67,8 @@ export default function MaterialDelivery({ project, logMaterialDelivery }) {
   }
 
   function reset() {
-    setMaterialType("");
-    setQuantity("");
-    setUnit("bags");
-    setSupplier("");
-    setAmount("");
-    setSubmitted(false);
+    setMaterialType(""); setQuantity(""); setUnit("bags");
+    setSupplier(""); setAmount(""); setSubmitted(false); setScheduledId(null);
   }
 
   if (submitted) {
@@ -67,6 +90,26 @@ export default function MaterialDelivery({ project, logMaterialDelivery }) {
         {activePhase && <div style={styles.phase}>{activePhase.label}</div>}
       </div>
 
+      {/* Scheduled Materials */}
+      {scheduledMaterials.length > 0 && (
+        <div style={styles.section}>
+          <div style={styles.sectionLabel}>Expected Deliveries</div>
+          {scheduledMaterials.map((mat) => (
+            <button
+              key={mat.id}
+              onClick={() => { setMaterialType(mat.material_name); setUnit(mat.unit); setScheduledId(mat.id); }}
+              style={{ ...styles.scheduledBtn, ...(scheduledId === mat.id ? styles.scheduledBtnActive : {}) }}
+            >
+              <div style={styles.scheduledName}>{mat.material_name}</div>
+              <div style={styles.scheduledMeta}>
+                Expected: {mat.quantity} {mat.unit}{mat.supplier ? ` · ${mat.supplier}` : ""}
+              </div>
+            </button>
+          ))}
+          <div style={styles.orDivider}>— or log a new delivery below —</div>
+        </div>
+      )}
+
       {/* Material Type */}
       <div style={styles.section}>
         <div style={styles.sectionLabel}>Material Type</div>
@@ -74,18 +117,21 @@ export default function MaterialDelivery({ project, logMaterialDelivery }) {
           {MATERIAL_TYPES.map((mat) => (
             <button
               key={mat}
-              onClick={() => setMaterialType(mat)}
-              style={{ ...styles.materialBtn, ...(materialType === mat ? styles.materialBtnActive : {}) }}
+              onClick={() => { setMaterialType(mat); setScheduledId(null); }}
+              style={{ ...styles.materialBtn, ...(materialType === mat && !scheduledId ? styles.materialBtnActive : {}) }}
             >
               {mat}
             </button>
           ))}
         </div>
+        {materialType && (
+          <div style={styles.selectedMaterial}>Selected: <strong>{materialType}</strong></div>
+        )}
       </div>
 
       {/* Quantity */}
       <div style={styles.section}>
-        <div style={styles.sectionLabel}>Quantity</div>
+        <div style={styles.sectionLabel}>Quantity Received</div>
         <div style={styles.quantityRow}>
           <input style={{ ...styles.input, flex: 2 }} type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0" inputMode="numeric" />
           <select style={{ ...styles.input, flex: 1 }} value={unit} onChange={(e) => setUnit(e.target.value)}>
@@ -100,7 +146,7 @@ export default function MaterialDelivery({ project, logMaterialDelivery }) {
         <input style={styles.input} value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Supplier name" />
       </div>
 
-      {/* Amount Paid */}
+      {/* Amount */}
       <div style={styles.section}>
         <div style={styles.sectionLabel}>Amount Paid (optional)</div>
         <div style={styles.amountWrap}>
@@ -129,9 +175,15 @@ const styles = {
   phase: { fontSize: "0.75rem", color: "#888", marginTop: 4 },
   section: { padding: "16px 20px 0" },
   sectionLabel: { fontSize: "0.7rem", fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10, fontFamily: "var(--font-heading)" },
+  scheduledBtn: { width: "100%", display: "flex", flexDirection: "column", alignItems: "flex-start", padding: "12px 14px", background: "#F5F5F5", border: "2px solid #E0E0E0", borderRadius: 12, cursor: "pointer", marginBottom: 8, textAlign: "left", transition: "all 0.15s ease" },
+  scheduledBtnActive: { background: "#FFF3E0", border: "2px solid #FF6B00" },
+  scheduledName: { fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "0.95rem", color: "#111", marginBottom: 2 },
+  scheduledMeta: { fontSize: "0.75rem", color: "#888" },
+  orDivider: { textAlign: "center", fontSize: "0.75rem", color: "#AAA", padding: "12px 0" },
   materialGrid: { display: "flex", flexWrap: "wrap", gap: 8 },
   materialBtn: { padding: "10px 16px", background: "#F5F5F5", border: "2px solid #E0E0E0", borderRadius: 100, fontFamily: "var(--font-heading)", fontWeight: 600, fontSize: "0.875rem", color: "#333", cursor: "pointer", transition: "all 0.15s ease" },
   materialBtnActive: { background: "#FFF3E0", border: "2px solid #FF6B00", color: "#FF6B00" },
+  selectedMaterial: { marginTop: 8, fontSize: "0.8rem", color: "#666" },
   quantityRow: { display: "flex", gap: 10 },
   input: { width: "100%", padding: "14px 16px", background: "#F5F5F5", border: "2px solid #E0E0E0", borderRadius: 12, fontFamily: "var(--font-sans)", fontSize: "1rem", color: "#111", outline: "none" },
   amountWrap: { display: "flex", alignItems: "center", background: "#F5F5F5", border: "2px solid #E0E0E0", borderRadius: 12, overflow: "hidden" },
