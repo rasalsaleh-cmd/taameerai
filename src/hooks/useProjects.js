@@ -2,7 +2,7 @@
  * useProjects.js — SiteOS Data Hook
  * ALL Supabase database operations live here.
  * Components never call Supabase directly — they use this hook.
- * Supports phases, sub-phases, and per-phase checklists.
+ * Naming convention: snake_case throughout (matches database).
  */
 
 import { useState, useEffect } from "react";
@@ -26,9 +26,9 @@ export function useProjects() {
           checklist_items:phase_checklist_items(*)
         ),
         expenses(*),
-        changeOrders:change_orders(*),
-        timelineEdits:timeline_edits(*),
-        checklistLogs:checklist_logs(*)
+        change_orders(*),
+        timeline_edits(*),
+        checklist_logs(*)
       `)
       .order("created_at", { ascending: false });
 
@@ -42,17 +42,17 @@ export function useProjects() {
     const { data: newProject, error: projectError } = await supabase
       .from("projects")
       .insert({
-        name:          projectData.name,
-        client:        projectData.client,
-        location:      projectData.location,
-        type:          projectData.type,
-        totalArea:     projectData.totalArea,
-        floors:        projectData.floors,
-        startDate:     projectData.startDate,
-        contractValue: projectData.contractValue,
-        status:        "active",
-        currentPhase:  phasesData[0]?.key || "excavation",
-        source:        projectData.source || "manual",
+        name:           projectData.name,
+        client:         projectData.client,
+        location:       projectData.location,
+        type:           projectData.type,
+        total_area:     projectData.total_area,
+        floors:         projectData.floors,
+        start_date:     projectData.start_date,
+        contract_value: projectData.contract_value,
+        status:         "active",
+        current_phase:  phasesData[0]?.key || "excavation",
+        source:         projectData.source || "manual",
       })
       .select()
       .single();
@@ -63,14 +63,14 @@ export function useProjects() {
       const { error: phasesError } = await supabase
         .from("project_phases")
         .insert(phasesData.map((p) => ({
-          projectId:   newProject.id,
-          key:         p.key,
-          label:       p.label,
-          budget:      p.budget || 0,
-          spent:       0,
-          progress:    0,
-          status:      "pending",
-          expectedEnd: p.expectedEnd || null,
+          project_id:   newProject.id,
+          key:          p.key,
+          label:        p.label,
+          budget:       p.budget || 0,
+          spent:        0,
+          progress:     0,
+          status:       "pending",
+          expected_end: p.expected_end || null,
         })));
       if (phasesError) throw phasesError;
     }
@@ -80,38 +80,38 @@ export function useProjects() {
   }
 
   // ─── Update a project ──────────────────────────────────────
-  async function updateProject(projectId, updates) {
+  async function updateProject(project_id, updates) {
     const { error } = await supabase
       .from("projects")
       .update(updates)
-      .eq("id", projectId);
+      .eq("id", project_id);
     if (error) throw error;
     await fetchProjects();
   }
 
   // ─── Update a phase or sub-phase ───────────────────────────
-  async function updatePhase(phaseId, updates) {
+  async function updatePhase(phase_id, updates) {
     const { error } = await supabase
       .from("project_phases")
       .update(updates)
-      .eq("id", phaseId);
+      .eq("id", phase_id);
     if (error) throw error;
     await fetchProjects();
   }
 
   // ─── Add a top-level phase ─────────────────────────────────
-  async function addPhase(projectId, phaseData) {
+  async function addPhase(project_id, phaseData) {
     const { error } = await supabase
       .from("project_phases")
       .insert({
-        projectId:       projectId,
+        project_id:      project_id,
         key:             phaseData.key,
         label:           phaseData.label,
         budget:          phaseData.budget || 0,
         spent:           0,
         progress:        0,
         status:          "pending",
-        expectedEnd:     phaseData.expectedEnd || null,
+        expected_end:    phaseData.expected_end || null,
         parent_phase_id: null,
         sort_order:      phaseData.sort_order || 0,
       });
@@ -120,19 +120,19 @@ export function useProjects() {
   }
 
   // ─── Add a sub-phase under a parent phase ──────────────────
-  async function addSubPhase(projectId, parentPhaseId, phaseData) {
+  async function addSubPhase(project_id, parent_phase_id, phaseData) {
     const { error } = await supabase
       .from("project_phases")
       .insert({
-        projectId:       projectId,
+        project_id:      project_id,
         key:             phaseData.key,
         label:           phaseData.label,
         budget:          phaseData.budget || 0,
         spent:           0,
         progress:        0,
         status:          "pending",
-        expectedEnd:     phaseData.expectedEnd || null,
-        parent_phase_id: parentPhaseId,
+        expected_end:    phaseData.expected_end || null,
+        parent_phase_id: parent_phase_id,
         sort_order:      phaseData.sort_order || 0,
       });
     if (error) throw error;
@@ -140,64 +140,59 @@ export function useProjects() {
   }
 
   // ─── Delete a phase or sub-phase ───────────────────────────
-  async function deletePhase(phaseId) {
+  async function deletePhase(phase_id) {
     const { error } = await supabase
       .from("project_phases")
       .delete()
-      .eq("id", phaseId);
+      .eq("id", phase_id);
     if (error) throw error;
     await fetchProjects();
   }
 
   // ─── Add checklist item to a phase/sub-phase ───────────────
-  async function addChecklistItem(phaseId, item, photoRequired = false) {
+  async function addChecklistItem(phase_id, item, photo_required = false) {
     const { error } = await supabase
       .from("phase_checklist_items")
-      .insert({
-        phase_id:       phaseId,
-        item:           item,
-        photo_required: photoRequired,
-        sort_order:     0,
-      });
+      .insert({ phase_id, item, photo_required, sort_order: 0 });
     if (error) throw error;
     await fetchProjects();
   }
 
   // ─── Delete a checklist item ───────────────────────────────
-  async function deleteChecklistItem(itemId) {
+  async function deleteChecklistItem(item_id) {
     const { error } = await supabase
       .from("phase_checklist_items")
       .delete()
-      .eq("id", itemId);
+      .eq("id", item_id);
     if (error) throw error;
     await fetchProjects();
   }
 
   // ─── Log an expense ────────────────────────────────────────
-  async function logExpense(projectId, expenseData) {
+  async function logExpense(project_id, expenseData) {
     const { error } = await supabase
       .from("expenses")
       .insert({
-        projectId:   projectId,
-        phase:       expenseData.phase,
-        category:    expenseData.category,
-        description: expenseData.description,
-        amount:      expenseData.amount,
-        receipt:     expenseData.receipt || null,
-        date:        expenseData.date || new Date().toISOString().split("T")[0],
+        project_id:   project_id,
+        phase:        expenseData.phase,
+        category:     expenseData.category,
+        description:  expenseData.description,
+        amount:       expenseData.amount,
+        receipt:      expenseData.receipt || null,
+        date:         expenseData.date || new Date().toISOString().split("T")[0],
       });
     if (error) throw error;
     await fetchProjects();
   }
 
   // ─── Submit a supervisor daily log ─────────────────────────
-  async function submitDailyLog(projectId, logData, items) {
+  async function submitDailyLog(project_id, logData, items) {
     const { data: log, error: logError } = await supabase
       .from("phase_logs")
       .insert({
-        project_id:      projectId,
-        phase_id:        logData.phaseId || null,
-        completion_rate: logData.completionRate || 0,
+        project_id:      project_id,
+        phase_id:        logData.phase_id || null,
+        completion_rate: logData.completion_rate || 0,
         notes:           logData.notes || null,
         log_date:        new Date().toISOString().split("T")[0],
       })
@@ -226,28 +221,28 @@ export function useProjects() {
   }
 
   // ─── Log a material delivery ───────────────────────────────
-  async function logMaterialDelivery(projectId, deliveryData) {
+  async function logMaterialDelivery(project_id, deliveryData) {
     const { error } = await supabase
       .from("expenses")
       .insert({
-        projectId:   projectId,
-        phase:       deliveryData.phase,
-        category:    "material",
-        description: `DELIVERY: ${deliveryData.materialType} — ${deliveryData.quantity} ${deliveryData.unit} from ${deliveryData.supplier}`,
-        amount:      deliveryData.amount || 0,
-        receipt:     deliveryData.photo || null,
-        date:        new Date().toISOString().split("T")[0],
+        project_id:   project_id,
+        phase:        deliveryData.phase,
+        category:     "material",
+        description:  `DELIVERY: ${deliveryData.materialType} — ${deliveryData.quantity} ${deliveryData.unit} from ${deliveryData.supplier}`,
+        amount:       deliveryData.amount || 0,
+        receipt:      deliveryData.photo || null,
+        date:         new Date().toISOString().split("T")[0],
       });
     if (error) throw error;
     await fetchProjects();
   }
 
   // ─── Submit a change order ─────────────────────────────────
-  async function submitChangeOrder(projectId, coData) {
+  async function submitChangeOrder(project_id, coData) {
     const { error } = await supabase
       .from("change_orders")
       .insert({
-        projectId:   projectId,
+        project_id:  project_id,
         phase:       coData.phase,
         type:        coData.type,
         description: coData.description,
@@ -260,15 +255,15 @@ export function useProjects() {
   }
 
   // ─── Submit a timeline edit ────────────────────────────────
-  async function submitTimelineEdit(projectId, tleData) {
+  async function submitTimelineEdit(project_id, tleData) {
     const { error } = await supabase
       .from("timeline_edits")
       .insert({
-        projectId: projectId,
-        phase:     tleData.phase,
-        newDate:   tleData.newDate,
-        reason:    tleData.reason,
-        date:      new Date().toISOString().split("T")[0],
+        project_id: project_id,
+        phase:      tleData.phase,
+        new_date:   tleData.new_date,
+        reason:     tleData.reason,
+        date:       new Date().toISOString().split("T")[0],
       });
     if (error) throw error;
     await fetchProjects();
